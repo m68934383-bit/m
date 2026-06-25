@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة تحكم الإدارة - نظام العُهد الاحترافي</title>
+    <title>لوحة تحكم الإدارة - نظام Firebase الاحترافي</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -75,7 +75,6 @@
         }
         .notif-header h2 { margin: 0; }
 
-        /* تصميم كروت الموظفين */
         .employees-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -101,7 +100,6 @@
         }
         .emp-name { font-size: 20px; font-weight: bold; }
         
-        /* مؤشر الحالة الدائري */
         .status-badge {
             width: 12px;
             height: 12px;
@@ -125,7 +123,6 @@
         }
         .notif-alert { border-right-color: #fab387; }
 
-        /* النافذة المنبثقة */
         .modal {
             display: none; 
             position: fixed; z-index: 1000; 
@@ -152,14 +149,14 @@
             font-size: 16px;
             margin-bottom: 15px;
         }
+        .loading { text-align: center; color: #fab387; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>لوحة تحكم الشركة 🏢</h1>
+    <h1>لوحة تحكم الشركة 🏢 <span style="font-size: 14px; color:#a6adc8;">(متصل بـ Firebase)</span></h1>
     
-    <!-- قسم إضافة الموظفين -->
     <div class="card">
         <h2>إضافة موظف جديد</h2>
         <div class="form-group">
@@ -170,7 +167,6 @@
         </div>
     </div>
 
-    <!-- قسم الإشعارات الواردة -->
     <div class="card">
         <div class="notif-header">
             <h2>الإشعارات والطلبات الواردة 🔔</h2>
@@ -179,17 +175,14 @@
         <div id="notificationsList"></div>
     </div>
 
-    <!-- قسم عرض كروت الموظفين -->
     <div class="card">
         <h2>إدارة الموظفين والعُهد</h2>
-        <!-- شريط البحث المطور -->
         <input type="text" id="searchBar" class="search-box" placeholder="🔍 ابحث عن موظف بالاسم هنا..." oninput="renderData()">
-        
+        <div id="loadingText" class="loading hidden">جاري تحديث البيانات...</div>
         <div class="employees-grid" id="employeesContainer"></div>
     </div>
 </div>
 
-<!-- النافذة المنبثقة لعرض سجل الصرف -->
 <div id="historyModal" class="modal">
     <div class="modal-content">
         <span class="close-modal" onclick="closeModal()">&times;</span>
@@ -211,25 +204,43 @@
 </div>
 
 <script>
-    let employees = JSON.parse(localStorage.getItem('employees')) || [];
-    let notifications = JSON.parse(localStorage.getItem('notifications')) || [];
-    let activeModalIndex = null;
+    // رابط الفايربيز الخاص بك
+    const dbUrl = "https://mohamed-38770-default-rtdb.firebaseio.com";
+    
+    let employees = {};
+    let notifications = {};
+    let activeModalId = null;
+
+    // جلب البيانات من الفايربيز
+    async function fetchData() {
+        document.getElementById('loadingText').classList.remove('hidden');
+        try {
+            const empRes = await fetch(`${dbUrl}/employees.json`);
+            employees = await empRes.json() || {};
+            
+            const notifRes = await fetch(`${dbUrl}/notifications.json`);
+            notifications = await notifRes.json() || {};
+            
+            renderData();
+            if(activeModalId !== null) viewExpenses(activeModalId);
+        } catch (error) {
+            console.error("خطأ في جلب البيانات:", error);
+        }
+        document.getElementById('loadingText').classList.add('hidden');
+    }
 
     function renderData() {
         const container = document.getElementById('employeesContainer');
         const searchQuery = document.getElementById('searchBar').value.toLowerCase().trim();
         container.innerHTML = '';
         
-        // فلترة الموظفين بناءً على البحث
-        const filteredEmployees = employees.filter(emp => emp.name.toLowerCase().includes(searchQuery));
+        let hasData = false;
 
-        if (filteredEmployees.length === 0) {
-            container.innerHTML = '<p>لا يوجد موظفين يطابقون البحث.</p>';
-        }
+        for (let id in employees) {
+            let emp = employees[id];
+            if (!emp.name.toLowerCase().includes(searchQuery)) continue;
+            hasData = true;
 
-        filteredEmployees.forEach((emp) => {
-            // تحديد الـ index الحقيقي في المصفوفة الأساسية
-            let originalIndex = employees.findIndex(e => e.name === emp.name);
             let isBudgetOk = emp.budget > 0;
             let budgetColor = isBudgetOk ? '#a6e3a1' : '#f38ba8';
             let statusClass = isBudgetOk ? 'status-active' : 'status-empty';
@@ -238,36 +249,45 @@
                 <div class="emp-card">
                     <div class="emp-header">
                         <div class="emp-name">${emp.name}</div>
-                        <span class="status-badge ${statusClass}" title="${isBudgetOk ? 'رصيد متاح' : 'الرصيد منتهي'}"></span>
+                        <span class="status-badge ${statusClass}"></span>
                     </div>
                     <div class="emp-budget">الرصيد: <span style="color: ${budgetColor}; font-weight:bold;">${emp.budget} نقطة</span></div>
                     
                     <div class="topup-section">
-                        <input type="number" id="topup-${originalIndex}" placeholder="المبلغ">
-                        <button class="btn-action" onclick="topupBudget(${originalIndex})">زيادة الرصيد</button>
+                        <input type="number" id="topup-${id}" placeholder="المبلغ">
+                        <button class="btn-action" onclick="topupBudget('${id}')">زيادة الرصيد</button>
                     </div>
                     
-                    <button class="btn-info" onclick="viewExpenses(${originalIndex})">👁️ عرض سجل الصرف</button>
-                    <button class="btn-danger" onclick="deleteEmployee(${originalIndex})">حذف الموظف</button>
+                    <button class="btn-info" onclick="viewExpenses('${id}')">👁️ عرض سجل الصرف</button>
+                    <button class="btn-danger" onclick="deleteEmployee('${id}')">حذف الموظف</button>
                 </div>
             `;
-        });
+        }
+
+        if (!hasData) {
+            container.innerHTML = '<p>لا يوجد موظفين حالياً أو لا يطابقون البحث.</p>';
+        }
 
         // عرض الإشعارات
         const notifList = document.getElementById('notificationsList');
-        notifList.innerHTML = notifications.length === 0 ? '<p>لا توجد إشعارات جديدة حالياً.</p>' : '';
-        notifications.forEach((notif, index) => {
+        notifList.innerHTML = '';
+        let hasNotifs = false;
+
+        for (let id in notifications) {
+            hasNotifs = true;
+            let notif = notifications[id];
             let alertClass = notif.type === 'overdraft' ? 'notif-alert' : '';
             notifList.innerHTML += `
                 <div class="notification-item ${alertClass}">
-                    <button class="btn-notif-delete" onclick="deleteNotification(${index})">حذف 🗑️</button>
+                    <button class="btn-notif-delete" onclick="deleteNotification('${id}')">حذف 🗑️</button>
                     ${notif.text} <br><small>الوقت: ${notif.time}</small>
                 </div>
             `;
-        });
+        }
+        if(!hasNotifs) notifList.innerHTML = '<p>لا توجد إشعارات جديدة حالياً.</p>';
     }
 
-    function addEmployee() {
+    async function addEmployee() {
         const name = document.getElementById('empName').value.trim();
         const pass = document.getElementById('empPass').value.trim();
         const budget = parseFloat(document.getElementById('empBudget').value);
@@ -277,22 +297,29 @@
             return;
         }
 
-        if (employees.some(e => e.name === name)) {
-            alert('هذا الموظف مضاف بالفعل!');
-            return;
+        // التأكد من عدم تكرار الاسم
+        for(let id in employees) {
+            if(employees[id].name === name) {
+                alert('هذا الموظف مضاف بالفعل!');
+                return;
+            }
         }
 
-        employees.push({ name, pass, budget, expenses: [] });
-        localStorage.setItem('employees', JSON.stringify(employees));
+        const newEmp = { name, pass, budget, expenses: "" };
         
+        await fetch(`${dbUrl}/employees.json`, {
+            method: 'POST',
+            body: JSON.stringify(newEmp)
+        });
+
         document.getElementById('empName').value = '';
         document.getElementById('empPass').value = '';
         document.getElementById('empBudget').value = '';
-        renderData();
+        fetchData();
     }
 
-    function topupBudget(index) {
-        const topupInput = document.getElementById(`topup-${index}`);
+    async function topupBudget(id) {
+        const topupInput = document.getElementById(`topup-${id}`);
         const amount = parseFloat(topupInput.value);
 
         if (isNaN(amount) || amount <= 0) {
@@ -300,16 +327,21 @@
             return;
         }
 
-        employees[index].budget += amount;
-        localStorage.setItem('employees', JSON.stringify(employees));
-        alert(`تم إضافة ${amount} إلى عُهدة [${employees[index].name}]`);
+        const newBudget = employees[id].budget + amount;
+        
+        await fetch(`${dbUrl}/employees/${id}.json`, {
+            method: 'PATCH',
+            body: JSON.stringify({ budget: newBudget })
+        });
+
+        alert(`تم إضافة ${amount} إلى عُهدة [${employees[id].name}]`);
         topupInput.value = '';
-        renderData();
+        fetchData();
     }
 
-    function viewExpenses(index) {
-        activeModalIndex = index;
-        const emp = employees[index];
+    function viewExpenses(id) {
+        activeModalId = id;
+        const emp = employees[id];
         document.getElementById('modalTitle').innerText = `سجل صرف الموظف: ${emp.name} 📋`;
         const tbody = document.getElementById('modalTableBody');
         const tfoot = document.getElementById('modalTableFoot');
@@ -319,10 +351,12 @@
 
         let totalSpent = 0;
 
-        if(!emp.expenses || emp.expenses.length === 0) {
+        if(!emp.expenses) {
             tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">لم يقم هذا الموظف بتسجيل أي مصروفات بعد.</td></tr>';
         } else {
-            emp.expenses.forEach(exp => {
+            // تحويل الـ expenses من Object لـ Array للعرض والتفنيط
+            let expArray = Object.values(emp.expenses);
+            expArray.forEach(exp => {
                 totalSpent += exp.amount;
                 tbody.innerHTML += `
                     <tr>
@@ -346,16 +380,15 @@
         document.getElementById('historyModal').style.display = 'flex';
     }
 
-    // دالة تصدير البيانات بصيغة إكسيل مبسطة CSV تدعم اللغة العربية
     function exportToCSV(emp) {
-        if(!emp.expenses || emp.expenses.length === 0) {
+        if(!emp.expenses) {
             alert('لا توجد بيانات لتصديرها!');
             return;
         }
-        let csvContent = "\uFEFF"; // لدعم اللغة العربية في إكسيل
+        let csvContent = "\uFEFF"; 
         csvContent += "التصنيف,السبب والبيان,المبلغ المصروف,التاريخ والوقت\n";
         
-        emp.expenses.forEach(exp => {
+        Object.values(emp.expenses).forEach(exp => {
             csvContent += `"${exp.category || 'عام'}","${exp.reason}",${exp.amount},"${exp.time}"\n`;
         });
         
@@ -371,39 +404,31 @@
 
     function closeModal() {
         document.getElementById('historyModal').style.display = 'none';
+        activeModalId = null;
     }
 
-    function deleteEmployee(index) {
-        if (confirm('هل أنت متأكد من حذف هذا الموظف؟')) {
-            employees.splice(index, 1);
-            localStorage.setItem('employees', JSON.stringify(employees));
-            renderData();
+    async function deleteEmployee(id) {
+        if (confirm('هل أنت متأكد من حذف هذا الموظف نهائياً؟')) {
+            await fetch(`${dbUrl}/employees/${id}.json`, { method: 'DELETE' });
+            fetchData();
         }
     }
 
-    function deleteNotification(index) {
-        notifications.splice(index, 1);
-        localStorage.setItem('notifications', JSON.stringify(notifications));
-        renderData();
+    async function deleteNotification(id) {
+        await fetch(`${dbUrl}/notifications/${id}.json`, { method: 'DELETE' });
+        fetchData();
     }
 
-    function clearAllNotifications() {
-        if (notifications.length === 0) return;
+    async function clearAllNotifications() {
         if (confirm('هل أنت متأكد من رغبتك في مسح كل الإشعارات؟')) {
-            notifications = [];
-            localStorage.setItem('notifications', JSON.stringify(notifications));
-            renderData();
+            await fetch(`${dbUrl}/notifications.json`, { method: 'DELETE' });
+            fetchData();
         }
     }
 
-    window.addEventListener('storage', () => {
-        employees = JSON.parse(localStorage.getItem('employees')) || [];
-        notifications = JSON.parse(localStorage.getItem('notifications')) || [];
-        renderData();
-        if(activeModalIndex !== null) viewExpenses(activeModalIndex);
-    });
-
-    renderData();
+    // تحديث تلقائي كل 7 ثوانٍ لمتابعة الإشعارات والصرف لايف
+    setInterval(fetchData, 7000);
+    fetchData();
 </script>
 </body>
 </html>
